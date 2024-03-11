@@ -28,17 +28,17 @@ type Task struct {
 	Status      string
 }
 
+// TaskList implements TaskManager interface
+type TaskList struct {
+	tasks map[int]Task
+	idGen func() int // Closure to generate unique IDs
+}
+
 // TaskManager interface defines methods for managing tasks
 type TaskManager interface {
 	CompleteTask(taskID int) error
 	AddTask(newTask Task) error
 	GetTaskList() map[int]Task
-}
-
-// TaskList implements TaskManager interface
-type TaskList struct {
-	tasks map[int]Task
-	idGen func() int // Closure to generate unique IDs
 }
 
 // NewTaskList creates a new instance of TaskList with a unique ID generator
@@ -82,7 +82,7 @@ func (tl *TaskList) AddTask(newTask Task) error {
 }
 
 // GetTaskList returns the current task list
-func (tl *TaskList) GetTaskList() map[int]Task {
+func (tl TaskList) GetTaskList() map[int]Task {
 	return tl.tasks
 }
 
