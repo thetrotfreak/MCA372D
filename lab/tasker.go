@@ -90,6 +90,7 @@ func (tl *TaskList) EditTask(taskID int, editedTask Task) error {
 	}
 	editedTask.ID = taskID
 	tl.tasks[taskID] = editedTask
+	fmt.Println("Task was:\n", task)
 	fmt.Printf("Task updated! '%s' with ID %d was edited.\n", editedTask.Description, editedTask.ID)
 	return nil
 }
