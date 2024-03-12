@@ -38,6 +38,7 @@ type TaskList struct {
 type TaskManager interface {
 	CompleteTask(taskID int) error
 	AddTask(newTask Task) error
+	EditTask(taskID int) error
 	GetTaskList() map[int]Task
 }
 
@@ -81,6 +82,18 @@ func (tl *TaskList) AddTask(newTask Task) error {
 	return nil
 }
 
+// EditTask edits a given task
+func (tl *TaskList) EditTask(taskID int, editedTask Task) error {
+	task, ok := tl.tasks[taskID]
+	if !ok {
+		return ErrTaskNotFound
+	}
+	editedTask.ID = taskID
+	tl.tasks[taskID] = editedTask
+	fmt.Printf("Task updated! '%s' with ID %d was edited.\n", editedTask.Description, editedTask.ID)
+	return nil
+}
+
 // GetTaskList returns the current task list
 func (tl TaskList) GetTaskList() map[int]Task {
 	return tl.tasks
@@ -102,8 +115,9 @@ func main() {
 		fmt.Println("\nTask Management Menu:")
 		fmt.Println("1. Mark Task as Complete")
 		fmt.Println("2. Add New Task")
-		fmt.Println("3. View Task List")
-		fmt.Println("4. Exit")
+		fmt.Println("3. Edit Task")
+		fmt.Println("4. View Task List")
+		fmt.Println("5. Exit")
 		fmt.Print("Enter your choice: ")
 
 		if !reader.Scan() {
@@ -146,8 +160,35 @@ func main() {
 				fmt.Println("Error:", err)
 			}
 		case 3:
-			displayTaskList(taskManager.GetTaskList())
+			fmt.Print("Enter Task ID to edit: ")
+			if !reader.Scan() {
+				fmt.Println("Error reading input:", reader.Err())
+				continue
+			}
+
+			taskIDStr := reader.Text()
+			taskID, err := strconv.Atoi(taskIDStr)
+			if err != nil {
+				fmt.Println("Invalid input. Please enter a number.")
+				continue
+			}
+
+			var editedTask Task
+			fmt.Print("Enter Updated Task Description: ")
+			if !reader.Scan() {
+				fmt.Println("Error reading input:", reader.Err())
+				continue
+			}
+
+			editedTask.Description = strings.TrimSpace(reader.Text())
+			editedTask.Status = taskManager.tasks[taskID].Status
+
+			if err := taskManager.EditTask(taskID, editedTask); err != nil {
+				fmt.Println("Error:", err)
+			}
 		case 4:
+			displayTaskList(taskManager.GetTaskList())
+		case 5:
 			fmt.Println("Exiting...")
 			return
 		default:
