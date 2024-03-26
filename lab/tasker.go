@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,9 +24,9 @@ var (
 
 // Define a struct for the task
 type Task struct {
-	ID          int
-	Description string
-	Status      string
+	ID          int    `json:"id"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
 }
 
 // TaskList implements TaskManager interface
@@ -40,6 +41,8 @@ type TaskManager interface {
 	AddTask(newTask Task) error
 	EditTask(taskID int) error
 	GetTaskList() map[int]Task
+	ToJSON() (string, error)
+	FromJSON() error
 }
 
 // NewTaskList creates a new instance of TaskList with a unique ID generator
@@ -57,6 +60,22 @@ func generateIDGenerator() func() int {
 		id++
 		return id
 	}
+}
+
+func (t Task) ToJSON() (string, error) {
+	payload, err := json.Marshal(t)
+
+	if err != nil {
+		return "", err
+	}
+
+	return string(payload), err
+}
+
+func (t *Task) FromJSON(payload string) error {
+	fmt.Println("In FromJSON(), got", *t)
+	err := json.Unmarshal([]byte(payload), t)
+	return err
 }
 
 // CompleteTask marks a task as complete
@@ -118,7 +137,9 @@ func main() {
 		fmt.Println("2. Add New Task")
 		fmt.Println("3. Edit Task")
 		fmt.Println("4. View Task List")
-		fmt.Println("5. Exit")
+		fmt.Println("5. View As JSON")
+		fmt.Println("6. View As Type")
+		fmt.Println("7. Exit")
 		fmt.Print("Enter your choice: ")
 
 		if !reader.Scan() {
@@ -190,6 +211,23 @@ func main() {
 		case 4:
 			displayTaskList(taskManager.GetTaskList())
 		case 5:
+			for _, task := range taskManager.GetTaskList() {
+				fmt.Println(task.ToJSON())
+			}
+		case 6:
+			var t Task
+
+			for _, task := range taskManager.GetTaskList() {
+				payload, err := task.ToJSON()
+
+				if err == nil {
+					err = (&t).FromJSON(payload)
+					if err == nil {
+						fmt.Println(t)
+					}
+				}
+			}
+		case 7:
 			fmt.Println("Exiting...")
 			return
 		default:
