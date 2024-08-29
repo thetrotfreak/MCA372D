@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Define constants for task statuses
@@ -18,8 +19,8 @@ const (
 
 // Define custom errors
 var (
-	ErrTaskNotFound      = errors.New("task not found")
-	ErrTaskAlreadyExists = errors.New("task with the same ID already exists")
+	ErrTaskNotFound      = errors.New("Task not found")
+	ErrTaskAlreadyExists = errors.New("Task with the same ID already exists")
 )
 
 // Define a struct for the task
@@ -33,7 +34,17 @@ type Task struct {
 type TaskList struct {
 	tasks map[int]Task
 	idGen func() int // Closure to generate unique IDs
+	mutex sync.Mutex
 }
+
+type taskRequest struct {
+	operation string
+	taskID    int
+	task      Task
+	response  chan string
+}
+
+var taskRequestChan = make(chan taskRequest)
 
 // TaskManager interface defines methods for managing tasks
 type TaskManager interface {
@@ -80,8 +91,11 @@ func (t *Task) FromJSON(payload string) error {
 
 // CompleteTask marks a task as complete
 func (tl *TaskList) CompleteTask(taskID int) error {
+	tl.mutex.Lock()
+	defer tl.mutex.Unlock()
+
 	task, ok := tl.tasks[taskID]
-	if !ok {
+	if !ok || task == (Task{}) {
 		return ErrTaskNotFound
 	}
 	task.Status = CompleteStatus
@@ -92,6 +106,9 @@ func (tl *TaskList) CompleteTask(taskID int) error {
 
 // AddTask adds a new task to the list
 func (tl *TaskList) AddTask(newTask Task) error {
+	tl.mutex.Lock()
+	defer tl.mutex.Unlock()
+
 	newTask.ID = tl.idGen()
 	if _, ok := tl.tasks[newTask.ID]; ok {
 		return ErrTaskAlreadyExists
@@ -103,8 +120,12 @@ func (tl *TaskList) AddTask(newTask Task) error {
 
 // EditTask edits a given task
 func (tl *TaskList) EditTask(taskID int, editedTask Task) error {
+	tl.mutex.Lock()
+	defer tl.mutex.Unlock()
+
 	task, ok := tl.tasks[taskID]
-	if !ok {
+	fmt.Println(ok, task)
+	if !ok || task == (Task{}) {
 		return ErrTaskNotFound
 	}
 	editedTask.ID = taskID
@@ -115,8 +136,17 @@ func (tl *TaskList) EditTask(taskID int, editedTask Task) error {
 }
 
 // GetTaskList returns the current task list
-func (tl TaskList) GetTaskList() map[int]Task {
-	return tl.tasks
+// func (tl TaskList) GetTaskList() map[int]Task {
+func (tl *TaskList) GetTaskList() map[int]Task {
+	tl.mutex.Lock()
+	defer tl.mutex.Unlock()
+
+	taskListCopy := make(map[int]Task)
+	for k, v := range tl.tasks {
+		taskListCopy[k] = v
+	}
+	return taskListCopy
+	// return tl.tasks
 }
 
 // Function to display the current task list
@@ -127,9 +157,52 @@ func displayTaskList(tasks map[int]Task) {
 	}
 }
 
+// Goroutine to handle task management requests
+func taskManagerLoop(taskManager *TaskList) {
+	for req := range taskRequestChan {
+		var response string
+		switch req.operation {
+		case "complete":
+			err := taskManager.CompleteTask(req.taskID)
+			if err != nil {
+				response = fmt.Sprintf("Error: %v", err)
+			} else {
+				task, _ := taskManager.GetTaskList()[req.taskID]
+				response = fmt.Sprintf("Task marked as complete! '%s'", task.Description)
+			}
+		case "add":
+			err := taskManager.AddTask(req.task)
+			if err != nil {
+				response = fmt.Sprintf("Error: %v", err)
+			} else {
+				response = fmt.Sprintf("New task added! '%s' with ID %d added to the list.", req.task.Description, req.task.ID)
+			}
+		case "edit":
+			err := taskManager.EditTask(req.taskID, req.task)
+			if err != nil {
+				response = fmt.Sprintf("Error: %v", err)
+			} else {
+				response = fmt.Sprintf("Task updated! '%s' with ID %d was edited.", req.task.Description, req.task.ID)
+			}
+		}
+		req.response <- response
+	}
+}
+
+// Goroutine to handle console output
+func consoleOutputLoop() {
+	for {
+		req := <-taskRequestChan
+		fmt.Println(req.response)
+	}
+}
+
 func main() {
 	taskManager := NewTaskList()
 	reader := bufio.NewScanner(os.Stdin)
+
+	go taskManagerLoop(taskManager)
+	go consoleOutputLoop()
 
 	for {
 		fmt.Println("\nTask Management Menu:")
@@ -166,9 +239,12 @@ func main() {
 				fmt.Println("Invalid input. Please enter a number.")
 				continue
 			}
-			if err := taskManager.CompleteTask(taskID); err != nil {
-				fmt.Println("Error:", err)
-			}
+			responseChan := make(chan string)
+			taskRequestChan <- taskRequest{operation: "complete", taskID: taskID, response: responseChan}
+			<-responseChan
+			// if err := taskManager.CompleteTask(taskID); err != nil {
+			// 	fmt.Println("Error:", err)
+			// }
 		case 2:
 			var newTask Task
 			fmt.Print("Enter Task Description: ")
@@ -178,9 +254,12 @@ func main() {
 			}
 			newTask.Description = strings.TrimSpace(reader.Text())
 			newTask.Status = IncompleteStatus
-			if err := taskManager.AddTask(newTask); err != nil {
-				fmt.Println("Error:", err)
-			}
+			responseChan := make(chan string)
+			taskRequestChan <- taskRequest{operation: "add", task: newTask, response: responseChan}
+			<-responseChan
+			// if err := taskManager.AddTask(newTask); err != nil {
+			// 	fmt.Println("Error:", err)
+			// }
 		case 3:
 			fmt.Print("Enter Task ID to edit: ")
 			if !reader.Scan() {
@@ -205,9 +284,12 @@ func main() {
 			editedTask.Description = strings.TrimSpace(reader.Text())
 			editedTask.Status = taskManager.tasks[taskID].Status
 
-			if err := taskManager.EditTask(taskID, editedTask); err != nil {
-				fmt.Println("Error:", err)
-			}
+			responseChan := make(chan string)
+			taskRequestChan <- taskRequest{operation: "edit", taskID: taskID, task: editedTask, response: responseChan}
+			<-responseChan
+			// if err := taskManager.EditTask(taskID, editedTask); err != nil {
+			// 	fmt.Println("Error:", err)
+			// }
 		case 4:
 			displayTaskList(taskManager.GetTaskList())
 		case 5:
